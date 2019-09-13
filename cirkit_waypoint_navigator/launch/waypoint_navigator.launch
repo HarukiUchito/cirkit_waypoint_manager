@@ -1,6 +1,6 @@
 <launch>
 
-  <arg name="waypoint_filename" default="$(find cirkit_waypoint_navigator)/waypoints/ekiden_final/first/2017-04-15-10-41-04.csv" />
+  <arg name="waypoint_filename" default="/home/aqua/catkin_ws/src/Aqua2019/entry_point/waypoints/fixed.csv" />
   <arg name="start_waypoint" default="0"/>
 
   <node name="cirkit_waypoint_navigator_node" pkg="cirkit_waypoint_navigator" type="cirkit_waypoint_navigator_node" output="screen">
