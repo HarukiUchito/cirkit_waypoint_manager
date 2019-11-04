@@ -17,6 +17,7 @@ read_csv.cpp : https://gist.github.com/yoneken/5765597#file-read_csv-cpp
 #include <tf/transform_listener.h>
 #include <visualization_msgs/Marker.h>
 #include <cirkit_waypoint_navigator/TeleportAbsolute.h>
+#include <map_selector/change_map.h>
 
 #include <boost/shared_array.hpp>
 #include <boost/tokenizer.hpp>
@@ -30,7 +31,7 @@ read_csv.cpp : https://gist.github.com/yoneken/5765597#file-read_csv-cpp
 
 typedef actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
 
-typedef boost::tokenizer<boost::char_separator<char>> tokenizer;
+typedef boost::tokenizer<boost::char_separator<char> > tokenizer;
 
 namespace RobotBehaviors
 {
@@ -44,6 +45,7 @@ enum State
     WAYPOINT_NAV_PLANNING_ABORTED,
     DETECT_TARGET_NAV_PLANNING_ABORTED,
     WAYPOINT_REACHED_STOP_POINT,
+    CHANGE_MAP_HERE,
 };
 }
 
@@ -51,8 +53,8 @@ class WayPoint
 {
 public:
     WayPoint();
-    WayPoint(move_base_msgs::MoveBaseGoal goal, int area_type, double reach_threshold)
-        : goal_(goal), area_type_(area_type), reach_threshold_(reach_threshold)
+    WayPoint(move_base_msgs::MoveBaseGoal goal, int area_type, double reach_threshold, int map_number)
+        : goal_(goal), area_type_(area_type), reach_threshold_(reach_threshold), map_number_(map_number)
     {
     }
     ~WayPoint() {} // FIXME: Don't declare destructor!!
@@ -78,9 +80,21 @@ public:
             return false;
         }
     }
+    bool isChangeMapPoint()
+    {
+        if (area_type_ == 3)
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
     move_base_msgs::MoveBaseGoal goal_;
     int area_type_;
     double reach_threshold_;
+    int map_number_;
 };
 
 class CirkitWaypointNavigator
@@ -176,13 +190,14 @@ public:
                 ss >> d;
                 data.push_back(d);
             }
-            if (data.size() != rows_num)
+            if (data.size() < 9)
             {
                 ROS_ERROR("Row size is mismatch!!");
                 return -1;
             }
             else
             {
+                // x y z qx qy qz qw area_type reach_th
                 move_base_msgs::MoveBaseGoal waypoint;
                 waypoint.target_pose.pose.position.x = data[0];
                 waypoint.target_pose.pose.position.y = data[1];
@@ -191,7 +206,10 @@ public:
                 waypoint.target_pose.pose.orientation.y = data[4];
                 waypoint.target_pose.pose.orientation.z = data[5];
                 waypoint.target_pose.pose.orientation.w = data[6];
-                waypoints_.push_back(WayPoint(waypoint, (int)data[7], data[8] / 2.0));
+                int map_num = -1;
+                if (data.size() >= 10)
+                    map_num = data[9];
+                waypoints_.push_back(WayPoint(waypoint, (int)data[7], data[8] / 2.0, map_num));
             }
         }
         return 0;
@@ -240,12 +258,33 @@ public:
         return sqrt(pow((a.position.x - b.position.x), 2.0) + pow((a.position.y - b.position.y), 2.0));
     }
 
+    geometry_msgs::Pose getMapPoseFromGPSPose(geometry_msgs::Pose g_pose)
+    {
+        geometry_msgs::PoseStamped m_pose;
+        try
+        {
+            geometry_msgs::PoseStamped source;
+            source.header.frame_id = "gps";
+            source.header.stamp = ros::Time(0);
+            source.pose = g_pose;
+            listener_.transformPose("map", source, m_pose);
+        }
+        catch (tf::TransformException& e)
+        {
+            ROS_ERROR("WaypointNavigator: failed to transform gps pose to map frame %s", e.what());
+            exit(0);
+        }
+        return m_pose.pose;
+    }
+
     // 探索対象へのアプローチの場合
     void setNextGoal(jsk_recognition_msgs::BoundingBox target_object, double threshold)
     {
         reach_threshold_ = threshold;
         // 現在のロボットの位置と探索対象を中心とした円の交点座標のロボットに近い方
-        geometry_msgs::Pose approach_pos = this->getTargetObjectApproachPosition(target_object.pose, 1.0);
+        geometry_msgs::Pose approach_pos = getMapPoseFromGPSPose(
+            this->getTargetObjectApproachPosition(target_object.pose, 1.0)
+        );
         approached_target_objects_.boxes.push_back(target_object); //探索済みに追加
         this->sendNextWaypointMarker(approach_pos, 1);
         this->sendNewGoal(approach_pos);
@@ -259,8 +298,9 @@ public:
     void setNextGoal(WayPoint waypoint)
     {
         reach_threshold_ = waypoint.reach_threshold_;
-        this->sendNextWaypointMarker(waypoint.goal_.target_pose.pose, 0); // 現在目指しているwaypointを表示する
-        this->sendNewGoal(waypoint.goal_.target_pose.pose);
+        geometry_msgs::Pose m_pose = getMapPoseFromGPSPose(waypoint.goal_.target_pose.pose);
+        this->sendNextWaypointMarker(m_pose, 0); // 現在目指しているwaypointを表示する
+        this->sendNewGoal(m_pose);
     }
 
     double getReachThreshold()
@@ -407,6 +447,8 @@ public:
 
     void run()
     {
+        ros::ServiceClient cli_ch_map = nh_.serviceClient<map_selector::change_map>("map_selector/change_map");
+
         robot_behavior_state_ = RobotBehaviors::INIT_NAV;
         number_of_approached_to_target_ = 0;
         while (ros::ok())
@@ -414,6 +456,19 @@ public:
             bool is_set_next_as_target = false;
             WayPoint next_waypoint = this->getNextWaypoint();
             ROS_GREEN_STREAM("Next WayPoint is got");
+
+            if (next_waypoint.isChangeMapPoint())
+            {
+                map_selector::change_map ch_map;
+                ch_map.request.map_number = next_waypoint.map_number_;
+                if (cli_ch_map.call(ch_map))
+                    ROS_INFO("Succeeded to call change_map");
+                else
+                {
+                    ROS_ERROR("failed to call change_map");
+                }
+            }
+
             if (next_waypoint.isSearchArea())
             { // 次のwaypointが探索エリアがどうか判定
                 ROS_INFO_STREAM("Now Search area.");
