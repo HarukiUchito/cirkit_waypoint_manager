@@ -40,7 +40,8 @@ enum State {
     DETECT_TARGET_REACHED_GOAL,
     INIT_NAV,
     WAYPOINT_NAV_PLANNING_ABORTED,
-    DETECT_TARGET_NAV_PLANNING_ABORTED
+    DETECT_TARGET_NAV_PLANNING_ABORTED,
+    WAYPOINT_REACHED_STOP_POINT,
 };
 }
 
@@ -53,6 +54,13 @@ public:
   ~WayPoint(){} // FIXME: Don't declare destructor!!
   bool isSearchArea() {
     if (area_type_ == 1) {
+      return true;
+    }else{
+      return false;
+    }
+  }
+  bool isStopPoint() {
+    if (area_type_ == 2) {
       return true;
     }else{
       return false;
@@ -417,7 +425,11 @@ public:
         if (distance_to_goal < this->getReachThreshold()) { // 目標座標までの距離がしきい値になれば
           ROS_INFO_STREAM("Distance: " << distance_to_goal);
           if (robot_behavior_state_ == RobotBehaviors::WAYPOINT_NAV) {
-            robot_behavior_state_ = RobotBehaviors::WAYPOINT_REACHED_GOAL;
+            if (next_waypoint.isStopPoint()){
+              robot_behavior_state_ = RobotBehaviors::WAYPOINT_REACHED_STOP_POINT;
+            } else{
+              robot_behavior_state_ = RobotBehaviors::WAYPOINT_REACHED_GOAL;
+            }
             break;
           } else if(robot_behavior_state_ == RobotBehaviors::DETECT_TARGET_NAV) {
             robot_behavior_state_ = RobotBehaviors::DETECT_TARGET_REACHED_GOAL;
@@ -471,6 +483,12 @@ public:
             number_of_approached_to_target_ += 1;
           }
           target_waypoint_index_ -= 1; // waypoint indexを１つ戻す
+          break;
+        }
+        case RobotBehaviors::WAYPOINT_REACHED_STOP_POINT: {
+          ROS_INFO("WAYPOINT_REACHED_GOAL");
+          char c;
+          std::cin >> c;
           break;
         }
         default: {
