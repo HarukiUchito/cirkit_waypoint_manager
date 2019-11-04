@@ -5,6 +5,7 @@
 #include <nav_msgs/Odometry.h>
 #include <tf/tf.h>
 #include <tf/transform_broadcaster.h>
+#include <tf/transform_listener.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <cirkit_waypoint_manager_msgs/WaypointArray.h>
 
@@ -39,6 +40,13 @@ public:
         waypoints_pub_ = nh_.advertise<cirkit_waypoint_manager_msgs::WaypointArray>("/waypoints", 1);
         waypoint_box_count_ = 0;
         server.reset(new interactive_markers::InteractiveMarkerServer("cube"));
+
+        ln_ = new tf::TransformListener();
+    }
+
+    ~CirkitWaypointGenerator()
+    {
+        delete ln_;
     }
 
     void load(std::string waypoint_file)
@@ -167,18 +175,35 @@ public:
     void makeWaypointMarker(const geometry_msgs::PoseWithCovariance new_pose,
                             int is_searching_area, double reach_threshold)
     {
+        std::string gframe = "gps";
+        // transform amcl pose to global fram (gps)
+        geometry_msgs::PoseStamped g_pose;
+        try
+        {
+            geometry_msgs::PoseStamped source;
+            source.header.frame_id = "map";
+            source.header.stamp = ros::Time(0);
+            source.pose = new_pose.pose;
+            ln_->transformPose(gframe, source, g_pose);
+        }
+        catch (tf::TransformException& e)
+        {
+            ROS_ERROR("WaypointGenerator: failed to transform amcl pose to gps frame %s", e.what());
+            exit(0);
+        }
+
         InteractiveMarker int_marker;
-        int_marker.header.frame_id = "map";
-        int_marker.pose = new_pose.pose;
+        int_marker.header.frame_id = gframe;
+        int_marker.pose = g_pose.pose;
         int_marker.scale = 1;
 
         visualization_msgs::Marker reach_marker;
-        reach_marker.header.frame_id = "map";
+        reach_marker.header.frame_id = gframe;
         reach_marker.header.stamp = ros::Time();
         reach_marker.id = waypoint_box_count_;
         reach_marker.type = visualization_msgs::Marker::CYLINDER;
         reach_marker.action = visualization_msgs::Marker::ADD;
-        reach_marker.pose = new_pose.pose;
+        reach_marker.pose = g_pose.pose;
         reach_marker.scale.x = reach_threshold / 2.0;
         reach_marker.scale.y = reach_threshold / 2.0;
         reach_marker.scale.z = 0.1;
@@ -202,7 +227,7 @@ public:
 
         cirkit_waypoint_manager_msgs::Waypoint waypoint;
         waypoint.number = waypoint_box_count_;
-        waypoint.pose = new_pose.pose;
+        waypoint.pose = g_pose.pose;
         waypoint.is_search_area = is_searching_area;
         waypoint.reach_tolerance = reach_threshold / 2.0;
         waypoints_.waypoints.push_back(waypoint);
@@ -253,7 +278,7 @@ public:
                                          waypoints_.waypoints[i].pose.orientation.y,
                                          waypoints_.waypoints[i].pose.orientation.z,
                                          waypoints_.waypoints[i].pose.orientation.w));
-            br_.sendTransform(tf::StampedTransform(t, time, "map", s.str()));
+            br_.sendTransform(tf::StampedTransform(t, time, "gps", s.str()));
         }
     }
 
@@ -283,6 +308,7 @@ private:
     std::vector<double> reach_thresholds_;
     visualization_msgs::MarkerArray reach_threshold_markers_;
     tf::TransformBroadcaster br_;
+    tf::TransformListener *ln_;
 };
 
 int main(int argc, char **argv)

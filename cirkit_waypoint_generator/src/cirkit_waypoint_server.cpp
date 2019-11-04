@@ -84,7 +84,7 @@ public:
                           int is_searching_area, double reach_threshold)
   {
     visualization_msgs::Marker waypoint_marker;
-    waypoint_marker.header.frame_id = "map";
+    waypoint_marker.header.frame_id = "gps";
     waypoint_marker.header.stamp = ros::Time();
     waypoint_marker.id = waypoint_box_count_;
     waypoint_marker.type = visualization_msgs::Marker::ARROW;
