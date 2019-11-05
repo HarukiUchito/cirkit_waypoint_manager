@@ -52,7 +52,7 @@ public:
         ss >> d;
         data.push_back(d);
       }
-      if(data.size() != rows_num){
+      if(data.size() < rows_num){
         ROS_ERROR("Row size is mismatch!!");
         return;
       }else{
