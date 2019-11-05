@@ -8,6 +8,7 @@
 #include <tf/transform_listener.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <cirkit_waypoint_manager_msgs/WaypointArray.h>
+#include <map_selector/transform_gps_pose.h>
 
 #include <math.h>
 #include <string>
@@ -73,7 +74,7 @@ public:
                 ss >> d;
                 data.push_back(d);
             }
-            if (data.size() != rows_num)
+            if (data.size() < rows_num)
             {
                 ROS_ERROR("Row size is mismatch!!");
                 return;
@@ -88,7 +89,7 @@ public:
                 new_pose.pose.orientation.y = data[4];
                 new_pose.pose.orientation.z = data[5];
                 new_pose.pose.orientation.w = data[6];
-                makeWaypointMarker(new_pose, (int)data[7], data[8]);
+                makeWaypointMarker(new_pose, (int)data[7], data[8], false);
             }
         }
         ROS_INFO_STREAM(waypoint_box_count_ << "waypoints are loaded.");
@@ -173,23 +174,28 @@ public:
     }
 
     void makeWaypointMarker(const geometry_msgs::PoseWithCovariance new_pose,
-                            int is_searching_area, double reach_threshold)
+                            int is_searching_area, double reach_threshold,
+                            bool transform_to_gps)
     {
         std::string gframe = "gps";
         // transform amcl pose to global fram (gps)
         geometry_msgs::PoseStamped g_pose;
-        try
+        g_pose.pose = new_pose.pose;
+        if (transform_to_gps)
         {
-            geometry_msgs::PoseStamped source;
-            source.header.frame_id = "map";
-            source.header.stamp = ros::Time(0);
-            source.pose = new_pose.pose;
-            ln_->transformPose(gframe, source, g_pose);
-        }
-        catch (tf::TransformException& e)
-        {
-            ROS_ERROR("WaypointGenerator: failed to transform amcl pose to gps frame %s", e.what());
-            exit(0);
+            try
+            {
+                geometry_msgs::PoseStamped source;
+                source.header.frame_id = "map";
+                source.header.stamp = ros::Time(0);
+                source.pose = new_pose.pose;
+                ln_->transformPose(gframe, source, g_pose);
+            }
+            catch (tf::TransformException& e)
+            {
+                ROS_ERROR("WaypointGenerator: failed to transform amcl pose to gps frame %s", e.what());
+                exit(0);
+            }
         }
 
         InteractiveMarker int_marker;
@@ -241,7 +247,7 @@ public:
         double diff_yaw = calculateAngle(amcl_pose->pose);
         if (diff_dist > dist_th_ || diff_yaw > yaw_th_)
         {
-            makeWaypointMarker(amcl_pose->pose, 0, 3.0);
+            makeWaypointMarker(amcl_pose->pose, 0, 3.0, true);
             last_pose_ = amcl_pose->pose;
         }
     }
@@ -258,7 +264,7 @@ public:
         geometry_msgs::PoseWithCovariance pose;
         tf::pointTFToMsg(tf::Vector3(point.point.x, point.point.y, 0), pose.pose.position);
         tf::quaternionTFToMsg(tf::createQuaternionFromRPY(0, 0, 0), pose.pose.orientation);
-        makeWaypointMarker(pose, 0, 3.0);
+        makeWaypointMarker(pose, 0, 3.0, false);
         server->applyChanges();
     }
 
@@ -286,6 +292,9 @@ public:
     {
         ros::Timer frame_timer = nh_.createTimer(ros::Duration(0.1), boost::bind(&CirkitWaypointGenerator::publishWaypointCallback, this, _1));
         ros::Timer tf_frame_timer = nh_.createTimer(ros::Duration(0.1), boost::bind(&CirkitWaypointGenerator::tfSendTransformCallback, this, _1));
+
+        tr_gps_cli_ = nh_.serviceClient<map_selector::transform_gps_pose>("map_selector/transform_gps_pose");
+
         while (ros::ok())
         {
             ros::spinOnce();
@@ -300,6 +309,9 @@ private:
     ros::Subscriber clicked_sub_;
     ros::Publisher reach_marker_pub_;
     ros::Publisher waypoints_pub_;
+
+    ros::ServiceClient tr_gps_cli_;
+
     geometry_msgs::PoseWithCovariance last_pose_;
     cirkit_waypoint_manager_msgs::WaypointArray waypoints_;
     double dist_th_;
