@@ -18,6 +18,7 @@ read_csv.cpp : https://gist.github.com/yoneken/5765597#file-read_csv-cpp
 #include <visualization_msgs/Marker.h>
 #include <cirkit_waypoint_navigator/TeleportAbsolute.h>
 #include <map_selector/change_map.h>
+#include <map_selector/transform_gps_pose.h>
 
 #include <boost/shared_array.hpp>
 #include <boost/tokenizer.hpp>
@@ -260,6 +261,19 @@ public:
 
     geometry_msgs::Pose getMapPoseFromGPSPose(geometry_msgs::Pose g_pose)
     {
+        map_selector::transform_gps_pose tr_gps;
+        tr_gps.request.gps_pose = g_pose;
+        if (tr_gps_cli_.call(tr_gps))
+        {
+            ROS_INFO("Succeeded to call transform_gps_pose");
+            return tr_gps.response.map_pose;
+        }
+        else
+        {
+            ROS_ERROR("failed to call transform_gps_pose");
+            exit(0);
+        }
+        /*
         geometry_msgs::PoseStamped m_pose;
         try
         {
@@ -268,6 +282,10 @@ public:
             source.header.stamp = ros::Time(0);
             source.pose = g_pose;
             listener_.transformPose("map", source, m_pose);
+            ROS_INFO("gps pose is transformed to (x: %f, y: %f) in map frame",
+                m_pose.pose.position.x,
+                m_pose.pose.position.y
+            );
         }
         catch (tf::TransformException& e)
         {
@@ -275,6 +293,7 @@ public:
             exit(0);
         }
         return m_pose.pose;
+        */
     }
 
     // 探索対象へのアプローチの場合
@@ -448,6 +467,7 @@ public:
     void run()
     {
         ros::ServiceClient cli_ch_map = nh_.serviceClient<map_selector::change_map>("map_selector/change_map");
+        tr_gps_cli_ = nh_.serviceClient<map_selector::transform_gps_pose>("map_selector/transform_gps_pose");
 
         robot_behavior_state_ = RobotBehaviors::INIT_NAV;
         number_of_approached_to_target_ = 0;
@@ -456,6 +476,10 @@ public:
             bool is_set_next_as_target = false;
             WayPoint next_waypoint = this->getNextWaypoint();
             ROS_GREEN_STREAM("Next WayPoint is got");
+            ROS_INFO("gps frame, x: %f, y: %f",
+                next_waypoint.goal_.target_pose.pose.position.x,
+                next_waypoint.goal_.target_pose.pose.position.y
+            );
 
             if (next_waypoint.isChangeMapPoint())
             {
@@ -672,6 +696,9 @@ private:
     std::vector<WayPoint> waypoints_;
     ros::NodeHandle nh_;
     tf::TransformListener listener_;
+
+    ros::ServiceClient tr_gps_cli_;
+
     int target_waypoint_index_;                                        // 次に目指すウェイポイントのインデックス
     jsk_recognition_msgs::BoundingBoxArray target_objects_;            //探索対象
     jsk_recognition_msgs::BoundingBoxArray approached_target_objects_; //アプローチ済みの探索対象
