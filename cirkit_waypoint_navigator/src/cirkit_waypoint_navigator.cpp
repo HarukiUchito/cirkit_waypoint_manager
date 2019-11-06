@@ -10,15 +10,18 @@ read_csv.cpp : https://gist.github.com/yoneken/5765597#file-read_csv-cpp
 #include <geometry_msgs/Pose.h>
 #include <jsk_recognition_msgs/BoundingBox.h>
 #include <jsk_recognition_msgs/BoundingBoxArray.h>
-#include <laser_geometry/laser_geometry.h>
 #include <move_base_msgs/MoveBaseAction.h>
-#include <sensor_msgs/LaserScan.h>
-#include <sensor_msgs/PointCloud.h>
 #include <tf/transform_listener.h>
 #include <visualization_msgs/Marker.h>
-#include <cirkit_waypoint_navigator/TeleportAbsolute.h>
 #include <map_selector/change_map.h>
 #include <map_selector/transform_gps_pose.h>
+
+#include <dynamic_reconfigure/StrParameter.h>
+#include <dynamic_reconfigure/DoubleParameter.h>
+#include <dynamic_reconfigure/IntParameter.h>
+#include <dynamic_reconfigure/BoolParameter.h>
+#include <dynamic_reconfigure/Reconfigure.h>
+#include <dynamic_reconfigure/Config.h>
 
 #include <boost/shared_array.hpp>
 #include <boost/tokenizer.hpp>
@@ -49,6 +52,15 @@ enum State
 
 class WayPoint
 {
+private:
+    enum  AreaType
+    {
+        STOP_POINT          = 1 << 0, //1
+        CHANGE_MAP_POINT    = 1 << 1, //2
+        LINE_UP_POINT       = 1 << 2, //4
+        SLOW_DOWN_POINT     = 1 << 3, //8
+    } ;
+
 public:
     WayPoint();
     WayPoint(move_base_msgs::MoveBaseGoal goal, int area_type, double reach_threshold, int map_number)
@@ -56,20 +68,9 @@ public:
     {
     }
     ~WayPoint() {} // FIXME: Don't declare destructor!!
-    bool isSearchArea()
-    {
-        if (area_type_ == 1)
-        {
-            return true;
-        }
-        else
-        {
-            return false;
-        }
-    }
     bool isStopPoint()
     {
-        if (area_type_ == 2)
+        if (area_type_ & STOP_POINT)
         {
             return true;
         }
@@ -80,7 +81,28 @@ public:
     }
     bool isChangeMapPoint()
     {
-        if (area_type_ == 3)
+        if (area_type_ & CHANGE_MAP_POINT)
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+    bool isLineUpPoint() 
+    {
+        if (area_type_ & LINE_UP_POINT) 
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+    bool isSlowDownPoint() {
+        if (area_type_ & SLOW_DOWN_POINT) 
         {
             return true;
         }
@@ -310,6 +332,85 @@ public:
         return now_goal_;
     }
 
+    void changeGlobalPlanner(bool which) {
+        dynamic_reconfigure::ReconfigureRequest srv_req;
+        dynamic_reconfigure::ReconfigureResponse srv_resp;
+        dynamic_reconfigure::StrParameter movebase;
+        dynamic_reconfigure::BoolParameter movebase_recovery;
+        dynamic_reconfigure::BoolParameter movebase_clear;
+        dynamic_reconfigure::DoubleParameter trajectry;
+        dynamic_reconfigure::IntParameter planner_retry;
+        dynamic_reconfigure::Config conf_movebase, conf_trajectry;
+
+        if(which){
+            movebase.name = "base_global_planner";
+            movebase.value = "non_costmap_planner/NonCostmapPlanner";
+            movebase_recovery.name = "recovery_behavior_enabled";
+            movebase_recovery.value = false;
+            movebase_clear.name = "clearing_rotation_allowed";
+            movebase_clear.value = false;
+            planner_retry.name = "max_planning_retries";
+            planner_retry.value = 1;
+            trajectry.name = "pdist_scale";
+            trajectry.value = 5.0;
+        }else{
+            movebase.name = "base_global_planner";
+            movebase.value = "navfn/NavfnROS";
+            movebase_recovery.name = "recovery_behavior_enabled";
+            movebase_recovery.value = true;
+            movebase_clear.name = "clearing_rotation_allowed";
+            movebase_clear.value = true;
+            planner_retry.name = "max_planning_retries";
+            planner_retry.value = -1;
+            trajectry.name = "pdist_scale";
+            trajectry.value = 0.75;
+        }
+
+        conf_movebase.strs.push_back(movebase);
+        conf_movebase.bools.push_back(movebase_recovery);
+        conf_movebase.bools.push_back(movebase_clear);
+        conf_movebase.ints.push_back(planner_retry);
+        srv_req.config = conf_movebase;
+        if (ros::service::call("/move_base/set_parameters", srv_req, srv_resp)) {
+            ROS_INFO("call to set movebase parameters succeeded");
+        } else {
+            ROS_INFO("call to set movebase parameters failed");
+        }
+
+        conf_trajectry.doubles.push_back(trajectry);
+        srv_req.config = conf_trajectry;
+        if (ros::service::call("/move_base/TrajectoryPlannerROS/set_parameters", srv_req, srv_resp)) {
+            ROS_INFO("call to set trajectry parameters succeeded");
+        } else {
+            ROS_INFO("call to set trajectry parameters failed");
+        }
+    }
+
+    void slowDown(bool slow)
+    {
+        dynamic_reconfigure::ReconfigureRequest srv_req;
+        dynamic_reconfigure::ReconfigureResponse srv_resp;
+        dynamic_reconfigure::DoubleParameter max_vel_x;
+        dynamic_reconfigure::Config conf_blp;
+
+        // TODO: Read from rosparam
+        if(slow){
+            max_vel_x.name = "max_vel_x";
+            max_vel_x.value = 0.15;
+        }else{
+            max_vel_x.name = "max_vel_x";
+            max_vel_x.value = 0.50;
+        }
+
+        conf_blp.doubles.push_back(max_vel_x);
+        srv_req.config = conf_blp;
+        if (ros::service::call("/move_base/TrajectoryPlannerROS/set_parameters", srv_req, srv_resp)) {
+            ROS_INFO("call to set max_vel_x parameters succeeded");
+        } else {
+            ROS_INFO("call to set max_vel_x parameters failed");
+        }
+    }
+
     void run()
     {
         ros::ServiceClient cli_ch_map = nh_.serviceClient<map_selector::change_map>("map_selector/change_map");
@@ -335,7 +436,10 @@ public:
                     ROS_ERROR("failed to call change_map");
                 }
             }
-            
+
+            changeGlobalPlanner(next_waypoint.isLineUpPoint());
+            slowDown(next_waypoint.isSlowDownPoint());
+
             ROS_INFO("Go next_waypoint.");
             this->setNextGoal(next_waypoint);
             robot_behavior_state_ = RobotBehaviors::WAYPOINT_NAV;
@@ -455,8 +559,7 @@ private:
 
     int target_waypoint_index_;                                        // 次に目指すウェイポイントのインデックス
     double reach_threshold_;                                           // 今セットされてるゴール（waypointもしくは探索対象）へのしきい値
-    geometry_msgs::Pose now_goal_;                                     // 現在目指しているゴールの座標
-    ros::Publisher cmd_vel_pub_;
+    geometry_msgs::Pose now_goal_;
     ros::Publisher next_waypoint_marker_pub_;
 };
 
