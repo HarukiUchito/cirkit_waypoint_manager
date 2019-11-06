@@ -59,6 +59,7 @@ private:
         CHANGE_MAP_POINT    = 1 << 1, //2
         LINE_UP_POINT       = 1 << 2, //4
         SLOW_DOWN_POINT     = 1 << 3, //8
+        SKIPPABLE_POINT     = 1 << 4,
     } ;
 
 public:
@@ -103,6 +104,16 @@ public:
     }
     bool isSlowDownPoint() {
         if (area_type_ & SLOW_DOWN_POINT) 
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+    bool isSkippablePoint() {
+        if (area_type_ & SKIPPABLE_POINT) 
         {
             return true;
         }
@@ -525,8 +536,14 @@ public:
                 {
                     ROS_INFO("!! WAYPOINT_NAV_PLANNING_ABORTED !!");
                     this->cancelGoal(); // 今のゴールをキャンセルして
-                    //this->tryBackRecovery(); // 1mくらい戻ってみて
-                    target_waypoint_index_ -= 1; // waypoint indexを１つ戻す
+                    if (next_waypoint.isSkippablePoint())
+                    {
+                        target_waypoint_index_ -= 1;
+                    }
+                    else
+                    {
+                        target_waypoint_index_ += 1;
+                    }
                     break;
                 }
                 case RobotBehaviors::WAYPOINT_REACHED_STOP_POINT:
