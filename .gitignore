@@ -56,3 +56,5 @@ CATKIN_IGNORE
 .moveit_ci/
 .vscode/c_cpp_properties.json
 .vscode/settings.json
+waypoint_type/.vscode/c_cpp_properties.json
+waypoint_type/.vscode/settings.json

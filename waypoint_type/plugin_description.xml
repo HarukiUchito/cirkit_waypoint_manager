@@ -1,0 +1,5 @@
+<library path="lib/libwaypoint_type">
+  <class name="waypoint_type/waypoint_type_panel" type="waypoint_type::WaypointTypePanel" base_class_type="rviz::Panel">
+    <description>waypoint type specify</description>
+  </class>
+</library>
