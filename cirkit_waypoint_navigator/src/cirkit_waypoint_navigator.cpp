@@ -573,7 +573,7 @@ private:
     tf::TransformListener listener_;
 
     ros::ServiceClient tr_gps_cli_;
-
+    
     int target_waypoint_index_;                                        // 次に目指すウェイポイントのインデックス
     double reach_threshold_;                                           // 今セットされてるゴール（waypointもしくは探索対象）へのしきい値
     geometry_msgs::Pose now_goal_;

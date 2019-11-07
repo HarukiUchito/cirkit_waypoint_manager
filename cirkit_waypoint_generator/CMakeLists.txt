@@ -11,6 +11,7 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   std_msgs
   tf
+  waypoint_type
   visualization_msgs
 )
 
@@ -25,6 +26,7 @@ catkin_package(
     roscpp
     std_msgs
     tf
+    waypoint_type
     visualization_msgs 
   DEPENDS Boost
 )
