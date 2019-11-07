@@ -1,0 +1,7 @@
+<launch>
+
+  <arg name="waypoint_filename" default="$(find cirkit_waypoint_navigator)/waypoints/lineup.csv" />
+ <arg name="start_waypoint" default="0"/>
+
+  <node pkg="cirkit_waypoint_generator" name="cirkit_waypoint_generator" type="cirkit_waypoint_generator" args="--load $(arg waypoint_filename)" output="screen"/>
+</launch>

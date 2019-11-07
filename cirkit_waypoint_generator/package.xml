@@ -20,6 +20,7 @@
   <depend>nav_msgs</depend>
   <depend>std_msgs</depend>
   <depend>tf</depend>
+  <depend>waypoint_type</depend>
   <depend>visualization_msgs</depend>
   <!-- Use test_depend for packages you need only for testing: -->
   <!--   <test_depend>gtest</test_depend> -->

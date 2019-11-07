@@ -7,6 +7,7 @@
 #include <tf/transform_broadcaster.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <cirkit_waypoint_manager_msgs/WaypointArray.h>
+#include <waypoint_type/wp_type.h>
 
 #include <math.h>
 #include <string>
@@ -39,6 +40,7 @@ public:
                               1,
                               &CirkitWaypointGenerator::addWaypoint, this);
     clicked_sub_ = nh_.subscribe("clicked_point", 1, &CirkitWaypointGenerator::clickedPointCallback, this);
+    wp_type_sub_ = nh_.subscribe("wp_type", 1, &CirkitWaypointGenerator::wpTypeCallback, this);
     reach_marker_pub_ = nh_.advertise<visualization_msgs::MarkerArray>("/reach_threshold_markers", 1);
     waypoints_pub_ = nh_.advertise<cirkit_waypoint_manager_msgs::WaypointArray>("/waypoints", 1);
     waypoint_box_count_ = 0;
@@ -87,6 +89,16 @@ public:
     return sqrt(pow(new_pose.pose.position.x - last_pose_.pose.position.x, 2)
                 + pow(new_pose.pose.position.y - last_pose_.pose.position.y, 2));
   }
+  
+  double calculateDistance( geometry_msgs::Pose a,
+                            geometry_msgs::PoseWithCovariance b
+                          )
+  {
+    return sqrt(pow(a.position.x - b.pose.position.x, 2)
+                + pow(a.position.y - b.pose.position.y, 2));
+  }
+
+
 
   void getRPY(const geometry_msgs::Quaternion &q,
               double &roll,double &pitch,double &yaw){
@@ -154,8 +166,15 @@ public:
         {
           reach_threshold_markers_.markers[std::stoi(feedback->marker_name)].pose
             = feedback->pose;
+          // 色彩感覚に自信ニキ募集
+          reach_threshold_markers_.markers[std::stoi(feedback->marker_name)].color.r 
+            =0.05 + 0.5*(float)waypoint_type_;
+          reach_threshold_markers_.markers[std::stoi(feedback->marker_name)].color.g = 0.80;
+          reach_threshold_markers_.markers[std::stoi(feedback->marker_name)].color.b = 0.02;
+          
           reach_marker_pub_.publish(reach_threshold_markers_);
           waypoints_.waypoints[std::stoi(feedback->marker_name)].pose = feedback->pose;
+          waypoints_.waypoints[std::stoi(feedback->marker_name)].is_search_area = waypoint_type_;
           break;
         }
     }
@@ -214,7 +233,7 @@ public:
     double diff_yaw = calculateAngle(amcl_pose->pose);
     if(diff_dist > dist_th_ || diff_yaw > yaw_th_)
     {
-      makeWaypointMarker(amcl_pose->pose, 0, 3.0);
+      makeWaypointMarker(amcl_pose->pose, waypoint_type_, 3.0);
       last_pose_ = amcl_pose->pose;
     }
   }
@@ -226,12 +245,35 @@ public:
     server->applyChanges();
   }
 
+  void wpTypeCallback(const waypoint_type::wp_type &wp_type_){
+    if (waypoint_type_ != wp_type_.type){
+      waypoint_type_ = wp_type_.type;
+      ROS_INFO("wp_type: %d", waypoint_type_);
+    }
+      
+
+
+  }
+
   void clickedPointCallback(const geometry_msgs::PointStamped &point)
   {
     geometry_msgs::PoseWithCovariance pose;
     tf::pointTFToMsg(tf::Vector3( point.point.x, point.point.y, 0), pose.pose.position);
     tf::quaternionTFToMsg(tf::createQuaternionFromRPY(0, 0, 0), pose.pose.orientation);
-    makeWaypointMarker(pose, 0, 3.0);
+    bool near_wp_found = false;
+    for (auto& e : waypoints_.waypoints){
+      if(calculateDistance(e.pose, pose) < 2.0){
+        e.is_search_area = waypoint_type_;
+        near_wp_found = true;
+        ROS_INFO("clicked nearby exist waypoint. changed wp_type");
+        break;
+      } 
+    }
+    if (not near_wp_found){
+      ROS_INFO_STREAM("waypoint is added.");
+      makeWaypointMarker(pose, waypoint_type_, 3.0);
+    }
+    
     server->applyChanges();
   }
   
@@ -269,6 +311,7 @@ private:
   ros::Rate rate_;
   ros::Subscriber odom_sub_;
   ros::Subscriber clicked_sub_;
+  ros::Subscriber wp_type_sub_;
   ros::Publisher reach_marker_pub_;
   ros::Publisher waypoints_pub_;
   geometry_msgs::PoseWithCovariance last_pose_;
@@ -276,6 +319,7 @@ private:
   double dist_th_;
   double yaw_th_;
   int waypoint_box_count_;
+  int waypoint_type_ = 0;
   std::vector<double> reach_thresholds_;
   visualization_msgs::MarkerArray reach_threshold_markers_;
   tf::TransformBroadcaster br_;
