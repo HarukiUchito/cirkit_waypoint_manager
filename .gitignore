@@ -54,3 +54,5 @@ CATKIN_IGNORE
 
 # CI
 .moveit_ci/
+.vscode/c_cpp_properties.json
+.vscode/settings.json
