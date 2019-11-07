@@ -13,8 +13,6 @@ read_csv.cpp : https://gist.github.com/yoneken/5765597#file-read_csv-cpp
 #include <move_base_msgs/MoveBaseAction.h>
 #include <tf/transform_listener.h>
 #include <visualization_msgs/Marker.h>
-#include <map_selector/change_map.h>
-#include <map_selector/transform_gps_pose.h>
 
 #include <dynamic_reconfigure/StrParameter.h>
 #include <dynamic_reconfigure/DoubleParameter.h>
@@ -267,50 +265,11 @@ public:
         return sqrt(pow((a.position.x - b.position.x), 2.0) + pow((a.position.y - b.position.y), 2.0));
     }
 
-    geometry_msgs::Pose getMapPoseFromGPSPose(geometry_msgs::Pose g_pose)
-    {
-        map_selector::transform_gps_pose tr_gps;
-        tr_gps.request.gps_pose = g_pose;
-        if (tr_gps_cli_.call(tr_gps))
-        {
-            ROS_INFO("Succeeded to call transform_gps_pose");
-            return tr_gps.response.map_pose;
-        }
-        else
-        {
-            ROS_ERROR("failed to call transform_gps_pose");
-            exit(0);
-        }
-        /*
-        geometry_msgs::PoseStamped m_pose;
-        try
-        {
-            geometry_msgs::PoseStamped source;
-            source.header.frame_id = "gps";
-            source.header.stamp = ros::Time(0);
-            source.pose = g_pose;
-            listener_.transformPose("map", source, m_pose);
-            ROS_INFO("gps pose is transformed to (x: %f, y: %f) in map frame",
-                m_pose.pose.position.x,
-                m_pose.pose.position.y
-            );
-        }
-        catch (tf::TransformException& e)
-        {
-            ROS_ERROR("WaypointNavigator: failed to transform gps pose to map frame %s", e.what());
-            exit(0);
-        }
-        return m_pose.pose;
-        */
-    }
-
     // 通常のwaypointの場合
-    void setNextGoal(WayPoint waypoint)
-    {
+    void setNextGoal(WayPoint waypoint) {
         reach_threshold_ = waypoint.reach_threshold_;
-        geometry_msgs::Pose m_pose = getMapPoseFromGPSPose(waypoint.goal_.target_pose.pose);
-        this->sendNextWaypointMarker(m_pose, 0); // 現在目指しているwaypointを表示する
-        this->sendNewGoal(m_pose);
+        this->sendNextWaypointMarker(waypoint.goal_.target_pose.pose, 0); // 現在目指しているwaypointを表示する
+        this->sendNewGoal(waypoint.goal_.target_pose.pose);
     }
 
     double getReachThreshold()
@@ -424,8 +383,6 @@ public:
 
     void run()
     {
-        ros::ServiceClient cli_ch_map = nh_.serviceClient<map_selector::change_map>("map_selector/change_map");
-        tr_gps_cli_ = nh_.serviceClient<map_selector::transform_gps_pose>("map_selector/transform_gps_pose");
         robot_behavior_state_ = RobotBehaviors::INIT_NAV;
         while (ros::ok())
         {
@@ -438,14 +395,7 @@ public:
 
             if (next_waypoint.isChangeMapPoint())
             {
-                map_selector::change_map ch_map;
-                ch_map.request.map_number = next_waypoint.map_number_;
-                if (cli_ch_map.call(ch_map))
-                    ROS_INFO("Succeeded to call change_map");
-                else
-                {
-                    ROS_ERROR("failed to call change_map");
-                }
+                ROS_INFO("Succeeded to call change_map");
             }
 
             changeGlobalPlanner(next_waypoint.isLineUpPoint());
