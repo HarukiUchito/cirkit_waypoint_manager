@@ -538,11 +538,11 @@ public:
                     this->cancelGoal(); // 今のゴールをキャンセルして
                     if (next_waypoint.isSkippablePoint())
                     {
-                        target_waypoint_index_ -= 1;
+                        target_waypoint_index_ += 1;
                     }
                     else
                     {
-                        target_waypoint_index_ += 1;
+                        target_waypoint_index_ -= 1;
                     }
                     break;
                 }
