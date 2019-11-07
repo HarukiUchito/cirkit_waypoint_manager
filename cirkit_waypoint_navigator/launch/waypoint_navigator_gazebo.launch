@@ -1,6 +1,6 @@
 <launch>
 
-  <arg name="waypoint_filename" default="$(find cirkit_waypoint_navigator)/waypoints/gazebo_waypoints.csv" />
+  <arg name="waypoint_filename" default="$(find cirkit_waypoint_navigator)/waypoints/lineup.csv" />
  <arg name="start_waypoint" default="0"/>
 
   <node name="cirkit_waypoint_navigator_node" pkg="cirkit_waypoint_navigator" type="cirkit_waypoint_navigator_node" output="screen">
