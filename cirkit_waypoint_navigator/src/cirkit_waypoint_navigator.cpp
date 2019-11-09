@@ -113,13 +113,13 @@ public:
         }
     }
     bool isSkippablePoint() {
-        if (area_type_ & SKIPPABLE_POINT) 
+        if (area_type_ & (SLOW_DOWN_POINT | LINE_UP_POINT | STOP_POINT | CHANGE_MAP_POINT)) 
         {
-            return true;
+            return false;
         }
         else
         {
-            return false;
+            return true;
         }
     }
     move_base_msgs::MoveBaseGoal goal_;
@@ -137,6 +137,7 @@ public:
     {
         robot_behavior_state_ = RobotBehaviors::INIT_NAV;
         std::string filename;
+        skip_count = 0;
 
         ros::NodeHandle n("~");
         n.param<std::string>("waypointsfile",
@@ -350,31 +351,24 @@ public:
         dynamic_reconfigure::BoolParameter movebase_recovery;
         dynamic_reconfigure::BoolParameter movebase_clear;
         dynamic_reconfigure::DoubleParameter trajectry;
+        dynamic_reconfigure::DoubleParameter min_vel_x;
         dynamic_reconfigure::IntParameter planner_retry;
         dynamic_reconfigure::Config conf_movebase, conf_trajectry;
 
         if(which){
-            movebase.name = "base_global_planner";
-            movebase.value = "non_costmap_planner/NonCostmapPlanner";
             movebase_recovery.name = "recovery_behavior_enabled";
             movebase_recovery.value = false;
             movebase_clear.name = "clearing_rotation_allowed";
             movebase_clear.value = false;
-            planner_retry.name = "max_planning_retries";
-            planner_retry.value = 1;
-            trajectry.name = "pdist_scale";
-            trajectry.value = 5.0;
+            min_vel_x.name = "min_vel_x";
+            min_vel_x.value = 0.0;
         }else{
-            movebase.name = "base_global_planner";
-            movebase.value = "navfn/NavfnROS";
             movebase_recovery.name = "recovery_behavior_enabled";
             movebase_recovery.value = true;
             movebase_clear.name = "clearing_rotation_allowed";
             movebase_clear.value = true;
-            planner_retry.name = "max_planning_retries";
-            planner_retry.value = -1;
-            trajectry.name = "pdist_scale";
-            trajectry.value = 0.75;
+            min_vel_x.name = "min_vel_x";
+            min_vel_x.value = 0.2;
         }
 
         conf_movebase.strs.push_back(movebase);
@@ -388,9 +382,9 @@ public:
             ROS_INFO("call to set movebase parameters failed");
         }
 
-        conf_trajectry.doubles.push_back(trajectry);
+        conf_trajectry.doubles.push_back(min_vel_x);
         srv_req.config = conf_trajectry;
-        if (ros::service::call("/move_base/TrajectoryPlannerROS/set_parameters", srv_req, srv_resp)) {
+        if (ros::service::call("move_base/TrajectoryPlannerROS/set_parameters", srv_req, srv_resp)) {
             ROS_INFO("call to set trajectry parameters succeeded");
         } else {
             ROS_INFO("call to set trajectry parameters failed");
@@ -410,7 +404,7 @@ public:
             max_vel_x.value = 0.15;
         }else{
             max_vel_x.name = "max_vel_x";
-            max_vel_x.value = 0.50;
+            max_vel_x.value = 0.40;
         }
 
         conf_blp.doubles.push_back(max_vel_x);
@@ -469,7 +463,7 @@ public:
                 if (delta_distance_to_goal < 0.1)
                 { // 進んだ距離が0.1[m]より小さくて
                     ros::Duration how_long_stay_time = ros::Time::now() - begin_navigation;
-                    if (how_long_stay_time.toSec() > 10.0)
+                    if (how_long_stay_time.toSec() > 10.0 + skip_count * 10)
                     { // 90秒間経過していたら
                         if (robot_behavior_state_ == RobotBehaviors::WAYPOINT_NAV)
                         {
@@ -525,9 +519,10 @@ public:
                 case RobotBehaviors::WAYPOINT_REACHED_GOAL:
                 {
                     ROS_INFO("WAYPOINT_REACHED_GOAL");
+                    skip_count = 0;
                     if (this->isFinalGoal())
                     {                       // そのwaypointが最後だったら
-                        this->cancelGoal(); // ゴールをキャンセルして終了
+                        //this->cancelGoal(); // ゴールをキャンセルして終了
                         return;
                     }
                     break;
@@ -539,6 +534,7 @@ public:
                     if (next_waypoint.isSkippablePoint())
                     {
                         target_waypoint_index_ += 1;
+                        skip_count++;
                     }
                     else
                     {
@@ -548,7 +544,8 @@ public:
                 }
                 case RobotBehaviors::WAYPOINT_REACHED_STOP_POINT:
                 {
-                    ROS_INFO("WAYPOINT_REACHED_GOAL");
+                    skip_count = 0;
+                    ROS_INFO("Stop point reached. Input any key.");
                     char c;
                     std::cin >> c;
                     break;
@@ -578,6 +575,7 @@ private:
     double reach_threshold_;                                           // 今セットされてるゴール（waypointもしくは探索対象）へのしきい値
     geometry_msgs::Pose now_goal_;
     ros::Publisher next_waypoint_marker_pub_;
+    int skip_count;
 };
 
 int main(int argc, char **argv)
